@@ -11,4 +11,6 @@ python setup.py build develop<br>
 ## clone the cervical cancer segmentation repo<br>
 cd cervical_backend<br>
 python manage.py runserver<br>
+try predict endpoint, it will return json reponse with the original image, predicted image, table contain data about the image, and pic chart information<br>
+http://127.0.0.1:8000/predict/
 
