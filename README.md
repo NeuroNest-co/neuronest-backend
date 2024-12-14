@@ -1,4 +1,4 @@
-# Cervical_cancer_segmentation
+you# Cervical_cancer_segmentation
 project that detect if the provided image contain a cervical cancer or not
 # How to use<br>
 python3 -m venv dtron2<br>
@@ -13,4 +13,10 @@ cd cervical_backend<br>
 python manage.py runserver<br>
 try predict endpoint, it will return json reponse with the original image, predicted image, table contain data about the image, and pic chart information<br>
 http://127.0.0.1:8000/predict/
+<br>
+## team members
+Machine learning: Juma Rubea<br>
+Backend: Meman Awad<br>
+frontend: Dama soumana and Plensia
+
 
