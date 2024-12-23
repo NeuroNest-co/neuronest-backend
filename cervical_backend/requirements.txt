@@ -1,3 +1,5 @@
 django==5.1.3
 django-cors-headers
-install requests
+requests
+numpy
+opencv-python
