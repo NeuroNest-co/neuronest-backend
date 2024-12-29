@@ -8,5 +8,5 @@ class Patient(models.Model):
     doctor_comment = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return self.patientId
-
+        # Return patientId and date in string format for better representation
+        return f"Patient {self.patientId} - {self.date.strftime('%Y-%m-%d %H:%M:%S')}"

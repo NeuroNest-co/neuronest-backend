@@ -120,14 +120,15 @@ def predict(request):
                 original_image_url = save_image(base64.b64encode(image_bytes).decode('utf-8'), original_image_filename)
                 predicted_image_url = save_image(img_base64, predicted_image_filename)
 
-                # Return a JSON response with URLs of the images
+                # Return a JSON response with URLs of the images and date info
                 return JsonResponse({
                     'success': True,
                     'message': 'Prediction successful',
                     'data': {
                         'patientId': patient_id,
                         'age': age,
-                        'doctor comments': doctor_comment,
+                        'doctor_comment': doctor_comment,
+                        'date': patient.date.strftime('%Y-%m-%d %H:%M:%S'),  # Include date information
                         'original_image_url': f"/media/{original_image_filename}",
                         'predicted_image_url': f"/media/{predicted_image_filename}",
                         'metrics': table_data,
