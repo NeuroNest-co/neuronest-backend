@@ -1,16 +1,16 @@
 import os
-from django.conf import settings
-from django.core.files.base import ContentFile
-from django.http import JsonResponse, HttpResponse
-import requests
 import base64
+import requests
 import numpy as np
-import cv2
+import datetime
+from django.conf import settings
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from .forms import PatientForm
+from .models import apiResponse
 
-FASTAPI_URL = "https://jumarubea-model-visualization.hf.space"  # Backend URL for FastAPI
+FASTAPI_URL = "https://jumarubea-model-visualization.hf.space"
 
-# Function to save images to the media folder
 def save_image(image_base64, filename):
     image_data = base64.b64decode(image_base64)
     image_path = os.path.join(settings.MEDIA_ROOT, filename)
@@ -22,69 +22,59 @@ def save_image(image_base64, filename):
 def predict(request):
     if request.method == 'POST':
         try:
-            # Get the uploaded image
-            image_file = request.FILES.get('file')
-            if not image_file:
-                return JsonResponse({'success': False, 'message': 'No image file provided'}, status=400)
+            form = PatientForm(request.POST)
+            if form.is_valid():
+                patient = form.save()
 
-            # Read the file into memory
-            image_bytes = image_file.read()
-            if not image_bytes:
-                return JsonResponse({'success': False, 'message': 'Image file is empty'}, status=400)
+                patient_id = f'P-{datetime.datetime.now().strftime("%Y-%m-%d")}-{patient.patientId:03}' 
 
-            # Send raw image bytes to FastAPI for prediction
-            files = {'file': image_bytes}
-            response = requests.post(f"{FASTAPI_URL}/predict", files=files)
+                # Now handle the image upload and send it for prediction
+                image_file = request.FILES.get('file')
+                if not image_file:
+                    return JsonResponse({'success': False, 'message': 'No image file provided'}, status=400)
 
-            if response.status_code == 200:
-                try:
+                # Read the file into memory
+                image_bytes = image_file.read()
+                if not image_bytes:
+                    return JsonResponse({'success': False, 'message': 'Image file is empty'}, status=400)
+
+                # Send raw image bytes to FastAPI for prediction
+                files = {'file': image_bytes}
+                response = requests.post(f"{FASTAPI_URL}/predict", files=files)
+
+                if response.status_code == 200:
                     result = response.json()
 
-                    # Extract visualization and metrics from the response
+                    # Extract visualization and predictions
                     img_base64 = result.get('visualization', '')
-                    metrics = result.get('metrics', {})
-
-                    # Check if predictions are included
                     predictions = result.get('predictions', [])
                     if not predictions:
                         return JsonResponse({'success': False, 'message': 'No predictions in response'}, status=500)
 
                     # Process detailed information for table and pie chart
-                    detailed_predictions = []
+                    table_data = []
+                    pie_chart_data = []
                     class_counts = {}
                     scores = {}
 
                     for prediction in predictions:
                         class_name = prediction.get('class_name')
                         score = prediction.get('score')
-                        bbox = prediction.get('bbox')
 
-                        # Store detailed predictions
-                        detailed_predictions.append({
-                            'class_name': class_name,
-                            'score': score,
-                            'bbox': bbox
-                        })
-
-                        # Count occurrences of each class for pie chart data
+                        # Count occurrences of each class for pie chart
                         class_counts[class_name] = class_counts.get(class_name, 0) + 1
 
-                        # Store scores for calculating table metrics
+                        # Store scores for metrics calculation
                         if class_name not in scores:
                             scores[class_name] = []
                         scores[class_name].append(score)
 
-                    # Prepare metrics and pie chart data
-                    table_data = []
-                    pie_chart_data = []
                     for class_name, score_list in scores.items():
-                        # Calculate metrics for each class
                         mean_score = np.mean(score_list)
                         max_score = np.max(score_list)
                         min_score = np.min(score_list)
                         count = len(score_list)
 
-                        # Add data to the table
                         table_data.append({
                             'class_name': class_name,
                             'mean_score': mean_score,
@@ -93,38 +83,72 @@ def predict(request):
                             'count': count
                         })
 
-                        # Prepare data for the pie chart
                         pie_chart_data.append({'class': class_name, 'count': count})
 
-                    # Save the original and predicted images to the media folder
-                    original_image_filename = "original_image.jpg"
-                    predicted_image_filename = "predicted_image.jpg"
+                    # Save images
+                    original_image_filename = f"{patient_id}_original_image.jpg"
+                    predicted_image_filename = f"{patient_id}_predicted_image.jpg"
 
-                    # Save original image (as base64) and predicted image
                     original_image_url = save_image(base64.b64encode(image_bytes).decode('utf-8'), original_image_filename)
                     predicted_image_url = save_image(img_base64, predicted_image_filename)
 
-                    # Return a JSON response with URLs of the images
-                    return JsonResponse({
+                    # Prepare response
+                    response_data = {
                         'success': True,
                         'message': 'Prediction successful',
                         'data': {
+                            'patientId': patient_id,
+                            'age': patient.age,
+                            'doctor_comment': patient.doctor_comment,
+                            'date': patient.date.strftime('%Y-%m-%d %H:%M:%S'),
                             'original_image_url': f"/media/{original_image_filename}",
                             'predicted_image_url': f"/media/{predicted_image_filename}",
                             'metrics': table_data,
                             'pie_chart_data': pie_chart_data
                         }
-                    })
+                    }
 
-                except Exception as e:
-                    return JsonResponse({'success': False, 'message': f"Error parsing response: {str(e)}"}, status=500)
+                    # Save response to the database
+                    apiResponse.objects.create(
+                        patient=patient,
+                        response_data=result,
+                        full_response=response_data
+                    )
+
+                    return JsonResponse(response_data)
+
+                else:
+                    return JsonResponse({
+                        'success': False,
+                        'message': f"Error from FastAPI: {response.status_code} {response.text}"
+                    }, status=response.status_code)
+
             else:
-                return JsonResponse({
-                    'success': False,
-                    'message': f"Error from FastAPI: {response.status_code} {response.text}"
-                }, status=response.status_code)
+                return JsonResponse({'success': False, 'message': 'Invalid patient details'}, status=400)
 
         except Exception as e:
             return JsonResponse({'success': False, 'message': f"Internal error: {str(e)}"}, status=500)
+
+    return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+def view_all_data(request):
+    if request.method == 'GET':
+        all_predictions = apiResponse.objects.all()
+
+        data = []
+        for prediction in all_predictions:
+            full_response = prediction.full_response or {}
+            patient_id = f'P-{prediction.patient.date.strftime("%Y-%m-%d")}-{prediction.patient.patientId:03}'
+
+            data.append({
+                'patientId': patient_id,
+                'age': prediction.patient.age,
+                'doctor_comment': prediction.patient.doctor_comment,
+                'date': prediction.patient.date.strftime('%Y-%m-%d %H:%M:%S'),
+                'metrics': full_response.get('data', {}).get('metrics', []),
+                'pie_chart_data': full_response.get('data', {}).get('pie_chart_data', []),
+            })
+
+        return JsonResponse({'success': True, 'data': data})
 
     return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
